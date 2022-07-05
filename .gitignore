@@ -34,3 +34,7 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Dagger
+dagger.mod
+dagger.sum
