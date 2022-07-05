@@ -6,21 +6,22 @@ import (
 	"universe.dagger.io/docker"
 )
 
-client: {
+dagger.#Plan & {
+	client: {
 		filesystem:{
-			"..": { // TODO: Explain this (we need to parent FS as we are in a subdirectory)
+			"..": {
 				read: {
 					contents: dagger.#FS
 				}
 			}
+			// output: write: contents: actions.build.output // Try that next ?
 		}
-}
+	}
 
-dagger.#Plan & {
 	actions: {
 		build: docker.#Run & {
 			_container: docker.#Pull & {
-				source: "eclipse-temurin:17-jdk-alpine"
+				source: "eclipse-temurin:17-jdk-alpine" // PERF: use a gradle image to speed up build
 			}
 			input: _container.output
 			mounts: {
@@ -35,6 +36,8 @@ dagger.#Plan & {
 				name: "./gradlew"
 				args: ["build"]
 			}
+			// TODO: This does not work, file not found :( Is there a way to inspect what's in there ?
+			// export: files: "/app/build/libs/dagger-jvm-0.0.1.jar": bytes
 		}
 	}
 }
