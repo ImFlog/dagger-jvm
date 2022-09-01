@@ -8,36 +8,77 @@ import (
 
 dagger.#Plan & {
 	client: {
+		env: REGISTRY_TOKEN: dagger.#Secret
 		filesystem:{
 			"..": {
 				read: {
 					contents: dagger.#FS
+					exclude: ["build"]
 				}
 			}
-			// output: write: contents: actions.build.output // Try that next ?
 		}
 	}
 
 	actions: {
-		build: docker.#Run & {
-			_container: docker.#Pull & {
-				source: "eclipse-temurin:17-jdk-alpine" // PERF: use a gradle image to speed up build
+		lint: docker.#Run & {
+			_built_container: docker.#Build & {
+				steps: [
+					docker.#Pull & {
+						source: "gradle:jdk17"
+					},
+					docker.#Set & {
+						config: workdir: "/app"
+					},
+					docker.#Copy & {
+						contents: client.filesystem."..".read.contents
+					}
+				]
 			}
-			input: _container.output
-			mounts: {
-				root: {
-					dest: "/app"
-					contents: client.filesystem."..".read.contents
-					type: "fs"
-				}
-			}
-			workdir: "/app"
+			input: _built_container.output
 			command: {
-				name: "./gradlew"
+				name: "gradle"
+				args: ["ktlintCheck"]
+			}
+		}
+		test: docker.#Run & {
+			// As the FS is retrieved from previous step,
+			// The gradle cache is persisted :)
+			input: lint.output
+			command: {
+				name: "gradle"
+				args: ["test"]
+			}
+		}
+		build: docker.#Run & {
+			input: test.output
+			command: {
+				name: "gradle"
 				args: ["build"]
 			}
-			// TODO: This does not work, file not found :( Is there a way to inspect what's in there ?
-			// export: files: "/app/build/libs/dagger-jvm-0.0.1.jar": bytes
+		}
+		push: docker.#Push & {
+			_image: docker.#Build & {
+				steps: [
+					docker.#Pull & {
+						source: "eclipse-temurin:17-jdk"
+					},
+					docker.#Copy & {
+						// Here we copy the build rootfs to get the /app/build directory
+						contents: build.output.rootfs
+					},
+					docker.#Set & {
+						config: {
+							cmd: ["java", "-jar", "/app/build/libs/dagger-jvm-0.0.1.jar"]
+						}
+					}
+				]
+			}
+			image: _image.output
+			auth: {
+				username: "flotech"
+				secret: client.env.REGISTRY_TOKEN
+			}
+			dest: "flotech/dagger-jvm:0.0.1"
 		}
 	}
 }
